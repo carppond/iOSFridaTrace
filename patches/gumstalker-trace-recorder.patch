@@ -1,0 +1,129 @@
+diff --git a/gum/backend-arm64/gumstalker-arm64.c b/gum/backend-arm64/gumstalker-arm64.c
+index 1a4763f..5bb01fe 100644
+--- a/gum/backend-arm64/gumstalker-arm64.c
++++ b/gum/backend-arm64/gumstalker-arm64.c
+@@ -12,6 +12,7 @@
+ 
+ #include "gumstalker.h"
+ 
++#include "trace/gumtraceinline-arm64.h"
+ #include "gumarm64reader.h"
+ #include "gumarm64relocator.h"
+ #include "gumarm64writer.h"
+@@ -161,6 +162,8 @@ struct _GumStalker
+   GHashTable * probe_array_by_address;
+ 
+   GumExceptor * exceptor;
++
++  GumTraceRecorder * trace_recorder;
+ };
+ 
+ struct _GumInfectContext
+@@ -1570,6 +1573,13 @@ gum_stalker_set_observer (GumStalker * self,
+   ctx->observer = observer;
+ }
+ 
++void
++gum_stalker_set_trace_recorder (GumStalker * self,
++                                GumTraceRecorder * recorder)
++{
++  self->trace_recorder = recorder;
++}
++
+ void
+ gum_stalker_prefetch (GumStalker * self,
+                       gconstpointer address,
+@@ -2913,6 +2923,23 @@ gum_stalker_iterator_next (GumStalkerIterator * self,
+         GUM_CODE_INTERRUPTIBLE);
+   }
+ 
++  /*
++   * Inline trace: emit BLOCK event at block entry.
++   * Uses micro-prolog (~15 insns) instead of PROLOG_FULL (~50+ insns).
++   */
++  if (is_first_instruction &&
++      self->exec_context->stalker->trace_recorder != NULL &&
++      (self->exec_block->flags & GUM_EXEC_BLOCK_USES_EXCLUSIVE_ACCESS) == 0)
++  {
++    GumTraceRecorder * recorder = self->exec_context->stalker->trace_recorder;
++
++    if (gum_trace_recorder_should_trace (recorder, instruction->start))
++    {
++      gum_trace_inline_emit_block (gc->code_writer, recorder,
++          instruction->start, instruction->end);
++    }
++  }
++
+   if (insn != NULL)
+     *insn = instruction->ci;
+ 
+@@ -2979,6 +3006,46 @@ gum_stalker_iterator_keep (GumStalkerIterator * self)
+     gum_exec_block_write_exec_event_code (block, gc, GUM_CODE_INTERRUPTIBLE);
+   }
+ 
++  /*
++   * Inline trace: emit per-instruction events.
++   * Categorize by instruction type: CALL, RET, or EXEC.
++   * Uses micro-prolog for ~3-5x less overhead than PROLOG_FULL.
++   */
++  {
++    GumTraceRecorder * trace_recorder = block->ctx->stalker->trace_recorder;
++
++    if (trace_recorder != NULL &&
++        (block->flags & GUM_EXEC_BLOCK_USES_EXCLUSIVE_ACCESS) == 0 &&
++        gum_trace_recorder_should_trace (trace_recorder,
++            gc->instruction->start))
++    {
++      switch (insn->id)
++      {
++        case ARM64_INS_BL:
++        case ARM64_INS_BLR:
++        case ARM64_INS_BLRAA:
++        case ARM64_INS_BLRAAZ:
++        case ARM64_INS_BLRAB:
++        case ARM64_INS_BLRABZ:
++          gum_trace_inline_emit_call (gc->code_writer, trace_recorder,
++              gc->instruction->start);
++          break;
++
++        case ARM64_INS_RET:
++        case ARM64_INS_RETAA:
++        case ARM64_INS_RETAB:
++          gum_trace_inline_emit_ret (gc->code_writer, trace_recorder,
++              gc->instruction->start);
++          break;
++
++        default:
++          gum_trace_inline_emit_exec (gc->code_writer, trace_recorder,
++              gc->instruction->start);
++          break;
++      }
++    }
++  }
++
+   switch (insn->id)
+   {
+     case ARM64_INS_B:
+diff --git a/gum/gumstalker.h b/gum/gumstalker.h
+index a931593..925206e 100644
+--- a/gum/gumstalker.h
++++ b/gum/gumstalker.h
+@@ -19,6 +19,8 @@
+ #include <gum/gumeventsink.h>
+ #include <gum/gumprocess.h>
+ 
++typedef struct _GumTraceRecorder GumTraceRecorder;
++
+ G_BEGIN_DECLS
+ 
+ #define GUM_TYPE_STALKER (gum_stalker_get_type ())
+@@ -188,6 +190,9 @@ GUM_API void gum_stalker_deactivate (GumStalker * self);
+ GUM_API void gum_stalker_set_observer (GumStalker * self,
+     GumStalkerObserver * observer);
+ 
++GUM_API void gum_stalker_set_trace_recorder (GumStalker * self,
++    GumTraceRecorder * recorder);
++
+ GUM_API void gum_stalker_prefetch (GumStalker * self, gconstpointer address,
+     gint recycle_count);
+ GUM_API void gum_stalker_prefetch_backpatch (GumStalker * self,
