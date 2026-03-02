@@ -24,6 +24,7 @@
 #define __GUM_TRACE_H__
 
 #include <gum/gumdefs.h>
+#include <gum/gumprocess.h>
 
 G_BEGIN_DECLS
 
@@ -45,11 +46,25 @@ GUM_API GumTraceSession * gum_trace_start (const gchar * module_name,
 
 /*
  * Start tracing with full configuration control.
+ * thread_id: 0 = current thread.
  */
 GUM_API GumTraceSession * gum_trace_start_with_options (
     const gchar * module_name, guint64 start_addr, guint64 size,
     const gchar * output_path, guint buffer_size, guint flush_interval_ms,
-    gboolean record_timestamps);
+    gboolean record_timestamps, GumThreadId thread_id);
+
+/*
+ * Start tracing a specific thread.
+ *
+ * @thread_id: Target thread ID (from gum_process_get_current_thread_id(),
+ *             or obtained via Process.enumerateThreads() in Frida JS).
+ *             Pass 0 to trace the current (calling) thread.
+ *
+ * Designed for remote control via Frida NativeFunction.
+ */
+GUM_API GumTraceSession * gum_trace_start_thread (const gchar * module_name,
+    guint64 start_addr, guint64 size, const gchar * output_path,
+    GumThreadId thread_id);
 
 /*
  * Stop the trace session and flush all data.

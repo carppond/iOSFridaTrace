@@ -44,7 +44,18 @@ gum_trace_start (const gchar * module_name,
                  const gchar * output_path)
 {
   return gum_trace_start_with_options (module_name, start_addr, size,
-      output_path, 0, 0, TRUE);
+      output_path, 0, 0, TRUE, 0);
+}
+
+GumTraceSession *
+gum_trace_start_thread (const gchar * module_name,
+                        guint64       start_addr,
+                        guint64       size,
+                        const gchar * output_path,
+                        GumThreadId   thread_id)
+{
+  return gum_trace_start_with_options (module_name, start_addr, size,
+      output_path, 0, 0, TRUE, thread_id);
 }
 
 GumTraceSession *
@@ -54,7 +65,8 @@ gum_trace_start_with_options (const gchar * module_name,
                               const gchar * output_path,
                               guint         buffer_size,
                               guint         flush_interval_ms,
-                              gboolean      record_timestamps)
+                              gboolean      record_timestamps,
+                              GumThreadId   thread_id)
 {
   GumTraceSession * session;
   GumTraceRecorderConfig config;
@@ -104,10 +116,21 @@ gum_trace_start_with_options (const gchar * module_name,
   /* Start recording */
   gum_trace_recorder_start (session->recorder);
 
-  /* Follow current thread */
-  session->tracing_self = TRUE;
-  gum_stalker_follow_me (session->stalker, session->transformer,
-      session->sink);
+  /* Follow target thread */
+  if (thread_id == 0)
+  {
+    session->tracing_self = TRUE;
+    session->target_thread = gum_process_get_current_thread_id ();
+    gum_stalker_follow_me (session->stalker, session->transformer,
+        session->sink);
+  }
+  else
+  {
+    session->tracing_self = FALSE;
+    session->target_thread = thread_id;
+    gum_stalker_follow (session->stalker, thread_id,
+        session->transformer, session->sink);
+  }
 
   return session;
 }
@@ -120,6 +143,8 @@ gum_trace_stop (GumTraceSession * session)
 
   if (session->tracing_self)
     gum_stalker_unfollow_me (session->stalker);
+  else
+    gum_stalker_unfollow (session->stalker, session->target_thread);
 
   /* Detach recorder from Stalker before freeing */
   gum_stalker_set_trace_recorder (session->stalker, NULL);

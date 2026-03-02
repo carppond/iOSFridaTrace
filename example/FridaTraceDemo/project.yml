@@ -1,0 +1,50 @@
+name: FridaTraceDemo
+
+options:
+  bundleIdPrefix: com.fridatrace
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "16.0"
+
+settings:
+  ONLY_ACTIVE_ARCH: NO
+
+targets:
+  FridaTraceDemo:
+    type: application
+    platform: iOS
+    sources:
+      - path: FridaTraceDemo
+        type: group
+    settings:
+      base:
+        INFOPLIST_FILE: FridaTraceDemo/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.fridatrace.demo
+        TARGETED_DEVICE_FAMILY: "1,2"
+        HEADER_SEARCH_PATHS:
+          - $(PROJECT_DIR)/libs/include
+          - $(PROJECT_DIR)/libs/include/glib-2.0
+          - $(PROJECT_DIR)/libs/include/capstone
+        LIBRARY_SEARCH_PATHS:
+          - $(PROJECT_DIR)/libs/lib
+        OTHER_LDFLAGS:
+          - -lfrida-gum-1.0
+          - -lglib-2.0
+          - -lgobject-2.0
+          - -lgthread-2.0
+          - -lffi
+          - -lcapstone
+          - -lpcre2-8
+          - -liconv
+          - -lcharset
+          - -lz
+          - -lresolv
+          - -ObjC
+        ENABLE_BITCODE: NO
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: ""
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"

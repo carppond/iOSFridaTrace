@@ -15,14 +15,15 @@ FridaTrace 是一个基于 frida-gum Stalker 的 iOS ARM64 指令级追踪库。
     → GumTraceRecorder (无锁环形缓冲区)
     → 后台刷写线程 (100ms)
     → 二进制 trace 文件 (FRIT 格式)
-    → trace_parser 解析工具
+    → test_trace / trace_parser 解析
 ```
 
 **核心设计**:
-- **Strategy B (默认)**: 内联 ARM64 代码生成，micro-prolog ~15 条指令，比 PROLOG_FULL (~50+) 更快
+- **Strategy B (默认)**: 内联 ARM64 代码生成，micro-prolog ~30 条指令 (含 NEON/FP)
 - **Strategy A (备选)**: 基于 transformer callback + `put_callout()` 的慢速方案
 - **无锁设计**: 单生产者 (Stalker 线程) / 单消费者 (flush 线程)
 - **32 字节定长记录**: type(1) + reserved(3) + thread_id(4) + location(8) + target(8) + timestamp(8)
+- **CALL_ARGS 伴随记录**: CALL(type=1) 后跟 CALL_ARGS(type=4)，记录原始 X0/X1 用于 ObjC 方法解析
 
 ## Directory Structure
 
@@ -37,9 +38,18 @@ FridaTrace/
 ├── tools/
 │   └── trace_parser.c           # trace 文件解析工具
 ├── tests/
-│   ├── test_trace.c             # 完整追踪测试
+│   ├── test_trace.c             # 完整追踪测试 (含 Capstone 反汇编 + 符号解析)
 │   └── test_stalker_basic.c     # 基础 Stalker 测试
-├── example/FridaTraceDemo/      # iOS Xcode 示例工程
+├── example/
+│   ├── FridaTraceDemo/          # iOS Xcode 示例工程 (非越狱)
+│   │   ├── FridaTraceDemo/      # ObjC 源码 (AppDelegate, ViewController)
+│   │   ├── libs/                # 编译后的库和头文件 (prepare_libs.sh 生成)
+│   │   ├── project.yml          # XcodeGen 工程配置
+│   │   └── prepare_libs.sh      # 拷贝 iOS 库到工程
+│   └── FridaTraceInject/        # 越狱注入 dylib
+│       ├── fridatrace_inject.c  # 注入源码 (constructor/destructor)
+│       ├── build.sh             # 编译脚本
+│       └── libfridatrace_inject.plist  # MobileSubstrate 过滤器
 ├── setup.sh                     # 一键环境搭建脚本
 ├── ios-arm64.cross              # Meson iOS 交叉编译配置
 └── frida-gum/                   # (gitignored) 克隆的 frida-gum
@@ -49,10 +59,11 @@ FridaTrace/
 
 | 文件 | 用途 |
 |------|------|
-| `src/trace/gumtraceinline-arm64.c` | ARM64 micro-prolog/epilog 代码生成 (176 字节栈帧, 保存 X0-X18/LR/NZCV) |
-| `src/trace/gumtracerecorder.c` | 无锁环形缓冲区实现 (默认 1M 记录, 100ms 刷写) |
+| `src/trace/gumtraceinline-arm64.c` | ARM64 micro-prolog/epilog (688 字节栈帧, 保存 X0-X18/LR/NZCV + Q0-Q31) |
+| `src/trace/gumtracerecorder.c` | 无锁环形缓冲区 (默认 1M 记录, 100ms 刷写, CALL_ARGS 伴随记录) |
 | `src/trace/gumtrace.c` | 顶层 API, 连接 Stalker 与 Recorder |
 | `patches/gumstalker-trace-recorder.patch` | 修改 Stalker 的 `iterator_next()` 和 `iterator_keep()` |
+| `tests/test_trace.c` | macOS 测试 (Capstone 反汇编 + dladdr 符号解析 + ObjC 方法名解析) |
 
 ## Build Commands
 
@@ -96,37 +107,99 @@ cc -o tests/test_trace tests/test_trace.c \
 ### trace_parser 工具
 ```bash
 cc -o tests/trace_parser tools/trace_parser.c -arch arm64
-# 用法:
 ./tests/trace_parser trace.bin --stats
 ./tests/trace_parser trace.bin --json --limit 20
 ./tests/trace_parser trace.bin --filter-type call --limit 50
 ```
 
+## iOS Testing
+
+### 非越狱设备 (FridaTraceDemo Xcode 工程)
+
+```bash
+# 1. 构建 iOS 静态库 (如尚未构建)
+./setup.sh
+cd frida-gum && ./configure --host=ios-arm64 -- -Dtests=disabled && make && cd ..
+
+# 2. 拷贝库和头文件到 Demo 工程
+cd example/FridaTraceDemo && ./prepare_libs.sh
+
+# 3. 生成 Xcode 工程 (需要 xcodegen: brew install xcodegen)
+xcodegen generate
+
+# 4. 打开 Xcode，设置开发者证书，连接设备构建运行
+open FridaTraceDemo.xcodeproj
+```
+
+**Demo App 功能**: 点击 "Start Tracing" 开始追踪 → 点击 "Run Workload" 执行测试负载 → 点击 "Stop Tracing" 停止并生成 trace.bin
+
+**导出 trace 文件**: Info.plist 已启用 `UIFileSharingEnabled`，可通过 Finder/iTunes 文件共享导出 Documents/trace.bin
+
+**Xcode 构建配置** (已在 project.yml 中设置):
+- Header Search Paths: `$(PROJECT_DIR)/libs/include`, `$(PROJECT_DIR)/libs/include/glib-2.0`, `$(PROJECT_DIR)/libs/include/capstone`
+- Library Search Paths: `$(PROJECT_DIR)/libs/lib`
+- Other Linker Flags: `-lfrida-gum-1.0 -lglib-2.0 -lgobject-2.0 -lgthread-2.0 -lffi -lcapstone -lpcre2-8 -liconv -lcharset -lz -lresolv -ObjC`
+
+### 越狱设备 (注入 dylib)
+
+```bash
+# 1. 编译注入 dylib
+cd example/FridaTraceInject && ./build.sh
+
+# 2. 部署到设备
+scp libfridatrace_inject.dylib root@<device-ip>:/usr/lib/
+ssh root@<device-ip> ldid -S /usr/lib/libfridatrace_inject.dylib
+
+# 3a. 方式一: DYLD_INSERT_LIBRARIES 注入
+ssh root@<device-ip>
+DYLD_INSERT_LIBRARIES=/usr/lib/libfridatrace_inject.dylib /path/to/target_app
+
+# 3b. 方式二: MobileSubstrate/ElleKit 自动注入
+scp libfridatrace_inject.dylib root@<device-ip>:/Library/MobileSubstrate/DynamicLibraries/
+scp libfridatrace_inject.plist root@<device-ip>:/Library/MobileSubstrate/DynamicLibraries/
+# 编辑 .plist 设置目标 App 的 Bundle ID，重启 SpringBoard
+
+# 4. 查看 trace 输出
+ssh root@<device-ip> ls -la /var/mobile/Documents/fridatrace/
+```
+
+**环境变量控制**:
+- `FRIDATRACE_MODULE` — 指定追踪的模块名 (默认: 主可执行文件)
+- `FRIDATRACE_OUTPUT` — 输出目录 (默认: /var/mobile/Documents/fridatrace)
+- `FRIDATRACE_DISABLE=1` — 禁用追踪
+
 ## ARM64 Technical Details
 
-### Micro-Prolog 栈帧布局 (176 字节)
+### Micro-Prolog 栈帧布局 (688 字节)
 ```
-[SP+160]: NZCV 条件标志
-[SP+144]: X18, LR
-[SP+128]: X14, X15
-[SP+112]: X12, X13
-[SP+ 96]: X10, X11
-[SP+ 80]: X8,  X9
-[SP+ 64]: X6,  X7
-[SP+ 48]: X4,  X5
-[SP+ 32]: X2,  X3
-[SP+ 16]: X0,  X1
+--- Integer registers (176 bytes) ---
 [SP+  0]: X16, X17
+[SP+ 16]: X0,  X1
+[SP+ 32]: X2,  X3
+[SP+ 48]: X4,  X5
+[SP+ 64]: X6,  X7
+[SP+ 80]: X8,  X9
+[SP+ 96]: X10, X11
+[SP+112]: X12, X13
+[SP+128]: X14, X15
+[SP+144]: X18, LR
+[SP+160]: NZCV 条件标志
+--- NEON/FP registers (512 bytes) ---
+[SP+176]: Q0,  Q1
+[SP+208]: Q2,  Q3
+  ...
+[SP+656]: Q30, Q31
 ```
 
-**重要**: 必须保存所有 ARM64 ABI caller-saved 寄存器 (X0-X18, LR, NZCV)。
-X19-X28 是 callee-saved，C 函数调用不会破坏，无需保存。
+**帧分配方式**: `SUB SP, SP, #688` + `STP` (因 688 > STP pre-index 偏移限制 ±512)
+**必须保存**: 所有 ARM64 ABI caller-saved 寄存器 (X0-X18, LR, NZCV) + 所有 NEON/FP 寄存器 (Q0-Q31)
 
 ### Trace 文件格式 (FRIT)
 - Magic: `0x46524954` ("FRIT")
 - Version: 1
 - 64 字节文件头 + N × 32 字节记录
-- 记录类型: EXEC(0), CALL(1), RET(2), BLOCK(3)
+- 记录类型: EXEC(0), CALL(1), RET(2), BLOCK(3), CALL_ARGS(4)
+- CALL_ARGS: location 字段 = 原始 X0 (ObjC self), target 字段 = 原始 X1 (ObjC _cmd)
 
 ## Important Conventions
 
@@ -135,10 +208,16 @@ X19-X28 是 callee-saved，C 函数调用不会破坏，无需保存。
 - **修改源码后**: 需要同步 `src/trace/` → `frida-gum/gum/trace/`，然后重新 `make`
 - **Include 路径注意**: `gum.h` 使用 `#include <gum/gumstalker.h>` (尖括号)，编译时需要 `-I "$GUM"` 让项目头文件优先于 `/usr/local/include/gum/`
 - **iOS 构建目录**: `frida-gum/build/` = iOS，`frida-gum/build-macos/` = macOS
+- **Demo 工程 libs/ 是 gitignored**: 编译后的库文件不提交，由 `prepare_libs.sh` 从 frida-gum 构建目录拷贝
+- **XcodeGen 依赖**: Demo 工程使用 `project.yml` 生成 `.xcodeproj`，需要 `brew install xcodegen`
 
 ## Common Issues
 
 1. **编译时找到系统 frida 头文件**: 确保 `-I "$GUM"` 在 include 路径最前面
 2. **链接缺少符号**: 需要链接 SDK 中所有依赖库 (capstone, pcre2, json-glib, sqlite3 等)
 3. **"Already configured" 错误**: `build/` 目录已存在，直接 `make` 即可；若需重配置，删除 `build/` 目录
-4. **寄存器破坏崩溃**: 内联代码必须保存所有 caller-saved 寄存器 (已修复)
+4. **寄存器破坏崩溃**: 内联代码必须保存所有 caller-saved 寄存器 + NEON/FP 寄存器 (已修复)
+5. **STP 偏移溢出**: 688 字节帧超出 STP pre-index 偏移限制 (±512)，使用 SUB SP / ADD SP 分开分配
+6. **Capstone detail 模式**: 访问 `insn->detail` 前必须 `cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON)`
+7. **iOS Demo 编译找不到 capstone.h**: 需要在 Header Search Paths 添加 `$(PROJECT_DIR)/libs/include/capstone`
+8. **越狱设备 dylib 签名**: 部署后必须 `ldid -S` 签名，否则无法加载
