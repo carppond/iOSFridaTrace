@@ -366,6 +366,16 @@ gum_trace_recorder_record_call (GumTraceRecorder * self,
 }
 
 void
+gum_trace_recorder_record_call_ex (GumTraceRecorder * self,
+                                   gpointer           location,
+                                   gpointer           arg0,
+                                   gpointer           arg1)
+{
+  gum_trace_recorder_write (self, GUM_TRACE_CALL, location, NULL);
+  gum_trace_recorder_write (self, GUM_TRACE_CALL_ARGS, arg0, arg1);
+}
+
+void
 gum_trace_recorder_record_ret (GumTraceRecorder * self,
                                gpointer           location,
                                gpointer           target)

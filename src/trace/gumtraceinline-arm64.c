@@ -207,10 +207,19 @@ gum_trace_inline_emit_call (GumArm64Writer * cw,
 {
   gum_trace_inline_write_micro_prolog (cw);
 
+  /* Load original X0, X1 from stack (saved by prolog at [SP+16], [SP+24]) */
+  gum_arm64_writer_put_ldr_reg_reg_offset (cw,
+      ARM64_REG_X2, ARM64_REG_SP, 16);
+  gum_arm64_writer_put_ldr_reg_reg_offset (cw,
+      ARM64_REG_X3, ARM64_REG_SP, 24);
+
+  /* record_call_ex(recorder, call_site, orig_x0, orig_x1) */
   gum_arm64_writer_put_call_address_with_arguments (cw,
-      GUM_ADDRESS (gum_trace_recorder_record_call), 2,
+      GUM_ADDRESS (gum_trace_recorder_record_call_ex), 4,
       GUM_ARG_ADDRESS, GUM_ADDRESS (recorder),
-      GUM_ARG_ADDRESS, GUM_ADDRESS (call_site));
+      GUM_ARG_ADDRESS, GUM_ADDRESS (call_site),
+      GUM_ARG_REGISTER, ARM64_REG_X2,
+      GUM_ARG_REGISTER, ARM64_REG_X3);
 
   gum_trace_inline_write_micro_epilog (cw);
 }

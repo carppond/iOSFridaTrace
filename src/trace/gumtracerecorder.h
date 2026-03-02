@@ -20,10 +20,11 @@ G_BEGIN_DECLS
  * Trace record types - what kind of event was recorded.
  */
 typedef enum {
-  GUM_TRACE_EXEC  = 0,  /* Instruction executed */
-  GUM_TRACE_CALL  = 1,  /* Function call (BL/BLR) */
-  GUM_TRACE_RET   = 2,  /* Function return (RET) */
-  GUM_TRACE_BLOCK = 3,  /* Entered a new basic block */
+  GUM_TRACE_EXEC      = 0,  /* Instruction executed */
+  GUM_TRACE_CALL      = 1,  /* Function call (BL/BLR) */
+  GUM_TRACE_RET       = 2,  /* Function return (RET) */
+  GUM_TRACE_BLOCK     = 3,  /* Entered a new basic block */
+  GUM_TRACE_CALL_ARGS = 4,  /* Companion to CALL: location=X0, target=X1 */
 } GumTraceType;
 
 /*
@@ -104,6 +105,9 @@ GUM_API void gum_trace_recorder_record_exec (GumTraceRecorder * self,
 
 GUM_API void gum_trace_recorder_record_call (GumTraceRecorder * self,
     gpointer location, gpointer target);
+
+GUM_API void gum_trace_recorder_record_call_ex (GumTraceRecorder * self,
+    gpointer location, gpointer arg0, gpointer arg1);
 
 GUM_API void gum_trace_recorder_record_ret (GumTraceRecorder * self,
     gpointer location, gpointer target);
