@@ -105,19 +105,22 @@ index 1a4763f..5bb01fe 100644
    {
      case ARM64_INS_B:
 diff --git a/gum/gumstalker.h b/gum/gumstalker.h
-index a931593..925206e 100644
+index a931593..be88471 100644
 --- a/gum/gumstalker.h
 +++ b/gum/gumstalker.h
-@@ -19,6 +19,8 @@
+@@ -19,6 +19,11 @@
  #include <gum/gumeventsink.h>
  #include <gum/gumprocess.h>
  
++#ifndef __GUM_TRACE_RECORDER_TYPEDEF__
++#define __GUM_TRACE_RECORDER_TYPEDEF__
 +typedef struct _GumTraceRecorder GumTraceRecorder;
++#endif
 +
  G_BEGIN_DECLS
  
  #define GUM_TYPE_STALKER (gum_stalker_get_type ())
-@@ -188,6 +190,9 @@ GUM_API void gum_stalker_deactivate (GumStalker * self);
+@@ -188,6 +193,9 @@ GUM_API void gum_stalker_deactivate (GumStalker * self);
  GUM_API void gum_stalker_set_observer (GumStalker * self,
      GumStalkerObserver * observer);
  
@@ -127,3 +130,23 @@ index a931593..925206e 100644
  GUM_API void gum_stalker_prefetch (GumStalker * self, gconstpointer address,
      gint recycle_count);
  GUM_API void gum_stalker_prefetch_backpatch (GumStalker * self,
+diff --git a/gum/meson.build b/gum/meson.build
+index 3c4c424..ebc8b71 100644
+--- a/gum/meson.build
++++ b/gum/meson.build
+@@ -307,6 +307,15 @@ if host_arch == 'arm64'
+       'backend-arm64' / 'memcpy-advsimd.S',
+     ]
+   endif
++
++  # FridaTrace: instruction-level trace recorder with inline ARM64 codegen
++  # NOTE: headers are NOT added to gum_headers to avoid GLib enum scanning
++  # (gumenumtypes.c auto-generation). They are included directly by the .c files.
++  gum_sources += [
++    'trace' / 'gumtrace.c',
++    'trace' / 'gumtracerecorder.c',
++    'trace' / 'gumtraceinline-arm64.c',
++  ]
+ endif
+ 
+ gum_mips_headers = [

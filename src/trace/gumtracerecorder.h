@@ -65,7 +65,10 @@ typedef struct {
   GumTraceFilter filter;         /* Which addresses to trace */
 } GumTraceRecorderConfig;
 
+#ifndef __GUM_TRACE_RECORDER_TYPEDEF__
+#define __GUM_TRACE_RECORDER_TYPEDEF__
 typedef struct _GumTraceRecorder GumTraceRecorder;
+#endif
 
 /*
  * Create a new trace recorder with the given configuration.

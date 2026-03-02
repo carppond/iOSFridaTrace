@@ -59,6 +59,13 @@ for patch in "$PATCH_DIR"/*.patch; do
     fi
 done
 
+# Step 4: Initialize submodules needed for build
+echo "[4/4] Initializing submodules..."
+cd "$FRIDA_GUM_DIR"
+if [ ! -f releng/meson/meson.py ]; then
+    git submodule update --init --recursive --depth 1
+fi
+
 echo ""
 echo "=== Setup complete ==="
 echo ""
@@ -66,8 +73,11 @@ echo "Project structure:"
 echo "  frida-gum/gum/trace/     - Trace module (our code)"
 echo "  frida-gum/gum/gumstalker.h - Modified (new API)"
 echo "  frida-gum/gum/backend-arm64/gumstalker-arm64.c - Modified (inline trace)"
+echo "  frida-gum/gum/meson.build  - Modified (added trace sources)"
 echo ""
-echo "Next steps:"
-echo "  1. Configure iOS ARM64 cross-compilation toolchain"
-echo "  2. Build frida-gum as a static library"
-echo "  3. Integrate into your iOS app"
+echo "Build for iOS ARM64:"
+echo "  cd frida-gum"
+echo "  ./configure --host=ios-arm64 -- -Dtests=disabled"
+echo "  make"
+echo ""
+echo "Output: frida-gum/build/gum/libfrida-gum-1.0.a"
