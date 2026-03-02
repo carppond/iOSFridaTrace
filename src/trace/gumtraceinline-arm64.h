@@ -1,13 +1,12 @@
 /*
  * GumTraceInline ARM64 - Inline code generation for trace recording.
  *
- * Generates minimal ARM64 instruction sequences that record trace events
- * directly into the GumTraceRecorder ring buffer, WITHOUT using Stalker's
- * full prolog/epilog mechanism.
+ * Generates ARM64 instruction sequences that record trace events directly
+ * into the GumTraceRecorder ring buffer. Saves all caller-saved integer
+ * registers (X0-X18, LR, NZCV) and all 32 NEON/FP Q registers to ensure
+ * complete register state preservation across trace recording calls.
  *
- * Performance comparison per trace point:
- *   GUM_PROLOG_FULL + event sink:  ~50+ instructions (save all regs + vfunc)
- *   Our micro-prolog approach:     ~11-15 instructions (save 4 regs only)
+ * Stack frame: 688 bytes (176 integer + 512 NEON/FP)
  *
  * Licence: wxWindows Library Licence, Version 3.1
  */
