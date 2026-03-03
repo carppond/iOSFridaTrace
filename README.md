@@ -14,6 +14,7 @@ FridaTrace hooks into Stalker's dynamic recompilation engine to record every ins
 - **32-byte fixed records** - Cache-line friendly, includes thread ID and timestamp
 - **No jailbreak required** - Static linking, runs within app sandbox
 
+
 ## Quick Start
 
 ```bash
@@ -21,6 +22,7 @@ FridaTrace hooks into Stalker's dynamic recompilation engine to record every ins
 git clone https://github.com/carppond/iOSFridaTrace.git
 cd iOSFridaTrace
 ./setup.sh
+
 
 # 2. Build for iOS
 cd frida-gum
